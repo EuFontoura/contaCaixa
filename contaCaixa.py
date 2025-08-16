@@ -1,98 +1,130 @@
-import datetime
-import win32print
+import customtkinter as ctk
+from tkinter import messagebox, StringVar
+import datetime, win32print
 
-def imprimir_recibo(total):
+# ======== UTIL======== #
+def brl(v: float) -> str:
+    s = f"{v:,.2f}"
+    return "R$ " + s.replace(",", "X").replace(".", ",").replace("X", ".")
+
+def parse_int(text: str) -> int:
+    text = (text or "").strip()
+    return int(text) if text.isdigit() else 0
+
+def only_digits(new_value: str) -> bool:
+    return new_value.isdigit() or new_value == ""
+
+# ======== IMPRESSÃO ======== #
+def imprimir_recibo(total: float, printer_name: str = "ELGIN i9(USB)"):
     agora = datetime.datetime.now()
     data_formatada = agora.strftime("%d/%m/%Y %H:%M:%S")
-
-    recibo = f"""
-Total Caixa:
-R$ {total:.2f}
-
-Data:
-{data_formatada}
-"""
-
+    recibo = f"\nTotal Caixa:\n{brl(total)}\n\nData:\n{data_formatada}\n"
     try:
-        printer_name = "ELGIN i9(USB)"
         hprinter = win32print.OpenPrinter(printer_name)
-        hprinter_dc = win32print.StartDocPrinter(hprinter, 1, ("Recibo", None, "RAW"))
+        win32print.StartDocPrinter(hprinter, 1, ("Recibo", None, "RAW"))
         win32print.StartPagePrinter(hprinter)
-
-        # Envia o texto
-        win32print.WritePrinter(hprinter, recibo.encode("cp437"))
-
-        # Dá avanço de papel (5 linhas) e corta
-        win32print.WritePrinter(hprinter, b"\n\n\n\n\n")  
-        win32print.WritePrinter(hprinter, b"\x1D\x56\x00")  # comando ESC/POS: corte total
-
+        win32print.WritePrinter(hprinter, recibo.encode("cp1252"))
+        win32print.WritePrinter(hprinter, b"\n\n\n\n\n\n")
+        win32print.WritePrinter(hprinter, b"\x1D\x56\x00")
         win32print.EndPagePrinter(hprinter)
         win32print.EndDocPrinter(hprinter)
         win32print.ClosePrinter(hprinter)
-
-        print("Recibo enviado para a impressora.")
+        messagebox.showinfo("Impressão", "Recibo enviado para a impressora.")
     except Exception as e:
-        print("Erro ao imprimir:", e)
+        messagebox.showerror("Erro", f"Erro ao imprimir: {e}")
+
+# ======== APP ======== #
+ctk.set_appearance_mode("dark")
+ctk.set_default_color_theme("blue")
+
+app = ctk.CTk()
+app.title("Contagem de Caixa")
+app.geometry("400x600") 
+app.minsize(380, 580)
+
+main = ctk.CTkFrame(app, corner_radius=12)
+main.pack(padx=10, pady=10, fill="both", expand=True)
+
+header = ctk.CTkLabel(main, text="💰 Contagem de Caixa", font=("Arial", 20, "bold"))
+header.pack(pady=(10, 8))
+
+content = ctk.CTkFrame(main, corner_radius=10)
+content.pack(fill="both", expand=True, padx=10, pady=6)
+content.grid_columnconfigure(0, weight=1)
+content.grid_columnconfigure(1, weight=0)
+
+validate_cmd = app.register(only_digits)
+
+vars_moedas, vars_notas = [], []
+row_index = 0
+
+def add_line(parent, rotulo: str, var: StringVar):
+    global row_index
+    lbl = ctk.CTkLabel(parent, text=rotulo, font=("Arial", 14))
+    lbl.grid(row=row_index, column=0, sticky="w", pady=2, padx=(4, 6))
+    ent = ctk.CTkEntry(parent, width=70, justify="right", textvariable=var,
+                       validate="key", validatecommand=(validate_cmd, "%P"))
+    ent.grid(row=row_index, column=1, sticky="e", pady=2, padx=(6, 4))
+    row_index += 1
+
+ctk.CTkLabel(content, text="Moedas", font=("Arial", 16, "bold")).grid(row=row_index, column=0, columnspan=2, sticky="w", pady=(6, 2), padx=4)
+row_index += 1
+for rot, val in [("0,05", 0.05), ("0,10", 0.10), ("0,25", 0.25), ("0,50", 0.50), ("1,00", 1.0)]:
+    v = StringVar()
+    add_line(content, f"{rot}", v)
+    vars_moedas.append((val, v))
+
+ctk.CTkLabel(content, text="Notas", font=("Arial", 16, "bold")).grid(row=row_index, column=0, columnspan=2, sticky="w", pady=(6, 2), padx=4)
+row_index += 1
+for rot, val in [("2,00", 2), ("5,00", 5), ("10,00", 10), ("20,00", 20), ("50,00", 50), ("100,00", 100)]:
+    v = StringVar()
+    add_line(content, f"{rot}", v)
+    vars_notas.append((val, v))
+
+# footer
+footer = ctk.CTkFrame(main, fg_color="transparent")
+footer.pack(fill="x", padx=10, pady=10)
+
+valor_total_label = ctk.CTkLabel(footer, text="Total: R$ 0,00", font=("Arial", 18, "bold"))
+valor_total_label.pack(pady=(4, 6))
+
+def calcular_total(*_):
+    total = 0.0
+    for valor, var in vars_moedas + vars_notas:
+        total += parse_int(var.get()) * valor
+    valor_total_label.configure(text=f"Total: {brl(total)}")
+    return total
+
+for _, v in vars_moedas + vars_notas:
+    v.trace_add("write", calcular_total)
+
+def on_imprimir():
+    total = calcular_total()
+    if total <= 0 and not messagebox.askyesno("Imprimir", "Total é zero. Deseja imprimir mesmo assim?"):
+        return
+    imprimir_recibo(total)
+
+buttons_frame = ctk.CTkFrame(footer, fg_color="transparent")
+buttons_frame.pack(pady=6)
+
+ctk.CTkButton(
+    buttons_frame,
+    text="Apagar Campos",
+    command=lambda: [v.set("") for _, v in vars_moedas + vars_notas],
+    fg_color="red",
+    hover_color="#a60000", 
+    width=160
+).grid(row=0, column=0, padx=(0, 8))
+
+ctk.CTkButton(
+    buttons_frame,
+    text="Imprimir Recibo",
+    command=on_imprimir,
+    width=160
+).grid(row=0, column=1)
 
 
-total = 0
+ctk.CTkLabel(footer, text="Dica: use apenas números inteiros nas quantidades.", font=("Arial", 11)).pack(pady=(2, 6))
 
-moeda5 = int(input("Insira quantidade de moedas de 0,05: "))
-total += moeda5 * 0.05
-
-moeda10 = int(input("Insira quantidade de moedas de 0,10: "))
-total += moeda10 * 0.10
-
-moeda25 = int(input("Insira quantidade de moedas de 0,25: "))
-total += moeda25 * 0.25
-
-moeda50 = int(input("Insira quantidade de moedas de 0,50: "))
-total += moeda50 * 0.50
-
-moeda1 = int(input("Insira quantidade de moedas de 1,00: "))
-total += moeda1 * 1
-
-print(f"Subtotal (moedas): R${total:.2f}")
-
-while True:
-    continuar = input("Deseja contar as notas também? (S/N): ").strip().upper()
-    
-    if continuar == "S":
-        nota2 = int(input("Insira quantidade de notas de 2,00: "))
-        total += nota2 * 2
-        
-        nota5 = int(input("Insira quantidade de notas de 5,00: "))
-        total += nota5 * 5
-        
-        nota10 = int(input("Insira quantidade de notas de 10,00: "))
-        total += nota10 * 10
-        
-        nota20 = int(input("Insira quantidade de notas de 20,00: "))
-        total += nota20 * 20
-        
-        nota50 = int(input("Insira quantidade de notas de 50,00: "))
-        total += nota50 * 50
-        
-        nota100 = int(input("Insira quantidade de notas de 100,00: "))
-        total += nota100 * 100
-        
-        print(f"Total final: R${total:.2f}")
-        break
-
-    elif continuar == "N":
-        print(f"Total final (somente moedas): R${total:.2f}")
-        break
-
-    else:
-        print("Entrada inválida. Digite apenas 'S' ou 'N'.")
-
-while True:
-    imprimir = input("Deseja imprimir o total? (S/N): ").strip().upper()
-    if imprimir == "S":
-        imprimir_recibo(total)
-        break
-    elif imprimir == "N":
-        print("Ok, encerrando sem imprimir.")
-        break
-    else:
-        print("Entrada inválida. Digite apenas 'S' ou 'N'.")
+calcular_total()
+app.mainloop()
