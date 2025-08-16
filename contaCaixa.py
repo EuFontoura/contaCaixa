@@ -1,38 +1,39 @@
 import datetime
 import win32print
-import win32ui
 
 def imprimir_recibo(total):
     agora = datetime.datetime.now()
     data_formatada = agora.strftime("%d/%m/%Y %H:%M:%S")
 
     recibo = f"""
- _________________________
-|                         |
-|     Total Caixa:        |
-|     R$ {total:.2f}             |
-|                         |
-|     Data:               |
-|     {data_formatada}     |
-|_________________________|
+Total Caixa:
+R$ {total:.2f}
+
+Data:
+{data_formatada}
 """
 
     try:
-        printer_name = win32print.GetDefaultPrinter()
+        printer_name = "ELGIN i9(USB)"
         hprinter = win32print.OpenPrinter(printer_name)
-        printer_info = win32print.GetPrinter(hprinter, 2)
-        pdc = win32ui.CreateDC()
-        pdc.CreatePrinterDC(printer_name)
+        hprinter_dc = win32print.StartDocPrinter(hprinter, 1, ("Recibo", None, "RAW"))
+        win32print.StartPagePrinter(hprinter)
 
-        pdc.StartDoc("Recibo de Caixa")
-        pdc.StartPage()
-        pdc.TextOut(100, 100, recibo)
-        pdc.EndPage()
-        pdc.EndDoc()
-        pdc.DeleteDC()
+        # Envia o texto
+        win32print.WritePrinter(hprinter, recibo.encode("cp437"))
+
+        # Dá avanço de papel (5 linhas) e corta
+        win32print.WritePrinter(hprinter, b"\n\n\n\n\n")  
+        win32print.WritePrinter(hprinter, b"\x1D\x56\x00")  # comando ESC/POS: corte total
+
+        win32print.EndPagePrinter(hprinter)
+        win32print.EndDocPrinter(hprinter)
+        win32print.ClosePrinter(hprinter)
+
         print("Recibo enviado para a impressora.")
     except Exception as e:
         print("Erro ao imprimir:", e)
+
 
 total = 0
 
