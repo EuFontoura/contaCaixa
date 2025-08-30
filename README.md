@@ -10,6 +10,7 @@ Um aplicativo simples criado para facilitar a contagem de caixa e gerar um relat
 - Exibição do total em tempo real
 - Impressão do total
 - Configuração de impressora com seleção e edição de margem
+- Memoria de configuração através de json
 ## Rodando localmente
 
 Clone o projeto
