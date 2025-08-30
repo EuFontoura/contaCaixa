@@ -2,6 +2,34 @@ import customtkinter as ctk
 from tkinter import messagebox, StringVar
 from customtkinter import CTkToplevel
 import datetime, win32print
+import json
+import os
+
+# ======== MEMORIA IMPRESSORA ======== #
+APP_NAME = "ContaCaixa"
+CONFIG_FILE = os.path.join(os.getenv("APPDATA"), APP_NAME, "config_impressora.json")
+
+def garantir_pasta():
+    pasta = os.path.dirname(CONFIG_FILE)
+    if not os.path.exists(pasta):
+        os.makedirs(pasta)
+
+def salvar_configuracoes():
+    garantir_pasta()
+    config = {
+        "printer_name": printer_name,
+        "margens": margens
+    }
+    with open(CONFIG_FILE, "w", encoding="utf-8") as f:
+        json.dump(config, f, ensure_ascii=False, indent=4)
+
+def carregar_configuracoes():
+    global printer_name, margens
+    if os.path.exists(CONFIG_FILE):
+        with open(CONFIG_FILE, "r", encoding="utf-8") as f:
+            config = json.load(f)
+            printer_name = config.get("printer_name", printer_name)
+            margens = config.get("margens", margens)
 
 # ======== UTIL ======== #
 def brl(v: float) -> str:
@@ -51,26 +79,39 @@ def abrir_configuracoes():
         printer_name = impressora_var.get()
         for k, var in margin_vars.items():
             margens[k] = parse_int(var.get())
+        salvar_configuracoes()
         messagebox.showinfo("Configurações", "Configurações salvas com sucesso!")
         top.destroy()
 
     ctk.CTkButton(top, text="Salvar", command=salvar).pack(pady=8)
 
 # ======== IMPRESSÃO ======== #
+def aplicar_margens(texto: str, margens: dict) -> str:
+    linhas = texto.splitlines()
+    resultado = []
+    for linha in linhas:
+        # adiciona espaços à esquerda e à direita
+        nova_linha = (" " * margens["left"]) + linha + (" " * margens["right"])
+        resultado.append(nova_linha)
+    # adiciona linhas em cima e embaixo
+    return ("\n" * margens["top"]) + "\n".join(resultado) + ("\n" * margens["bottom"])
+
 def imprimir_recibo(total: float):
     agora = datetime.datetime.now()
     data_formatada = agora.strftime("%d/%m/%Y %H:%M:%S")
-    recibo = f"\nTotal Caixa:\n{brl(total)}\n\nData:\n{data_formatada}\n"
-
-    recibo = ("\n" * margens["top"]) + (" " * margens["left"]) + recibo
-    recibo += ("\n" * margens["bottom"])
+    
+    recibo = f"Total Caixa:\n{brl(total)}\n\nData:\n{data_formatada}"
+    
+    # aplica todas as margens
+    recibo = aplicar_margens(recibo, margens)
 
     try:
         hprinter = win32print.OpenPrinter(printer_name)
         win32print.StartDocPrinter(hprinter, 1, ("Recibo", None, "RAW"))
         win32print.StartPagePrinter(hprinter)
         win32print.WritePrinter(hprinter, recibo.encode("cp1252"))
-        win32print.WritePrinter(hprinter, b"\n\n\n\n\n\n")
+        # avança um pouco o papel
+        win32print.WritePrinter(hprinter, b"\n\n\n")
         win32print.WritePrinter(hprinter, b"\x1D\x56\x00")
         win32print.EndPagePrinter(hprinter)
         win32print.EndDocPrinter(hprinter)
@@ -82,6 +123,7 @@ def imprimir_recibo(total: float):
 # ======== APP ======== #
 ctk.set_appearance_mode("dark")
 ctk.set_default_color_theme("blue")
+carregar_configuracoes()
 
 app = ctk.CTk()
 app.title("Contagem de Caixa")
